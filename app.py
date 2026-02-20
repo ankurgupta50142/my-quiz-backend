@@ -7,36 +7,54 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-def extract_quiz_fixed(pdf_path):
+def extract_quiz_ultimate(pdf_path):
     final_quiz = []
     doc = fitz.open(pdf_path)
-    full_text = ""
+    full_text = "\n"
     for page in doc:
         full_text += page.get_text("text") + "\n"
+    doc.close()
     
-    # KrutiDev में ब्रैकेट और नंबर अलग तरह से दिखते हैं
-    # हम नंबर (1. से 100.) के आधार पर ब्लॉक तोड़ेंगे
-    blocks = re.split(r'(\d+)\.\s+', full_text)
+    # सवाल नंबर के आधार पर बांटना (जैसे: लाइन के शुरू में '1. ')
+    blocks = re.split(r'\n(\d+)\.\s+', full_text)
     
-    for i in range(1, len(blocks), 2):
+    for i in range(1, len(blocks)-1, 2):
         q_id = blocks[i]
         content = blocks[i+1]
         
-        # KrutiDev में (a) के लिए 'v' और (b) के लिए 'k' जैसे अक्षर इस्तेमाल होते हैं
-        # हम '(' ब्रैकेट के आधार पर ऑप्शंस बाँटेंगे
-        parts = re.split(r'\(', content)
-        if len(parts) >= 5:
+        # फालतू स्पेस हटाना
+        content = re.sub(r'\s+', ' ', content).strip()
+        
+        # ऑप्शंस (a), (b), (c), (d) को ढूँढना
+        a_m = re.search(r'\(\s*[aA]\s*\)', content)
+        b_m = re.search(r'\(\s*[bB]\s*\)', content)
+        c_m = re.search(r'\(\s*[cC]\s*\)', content)
+        d_m = re.search(r'\(\s*[dD]\s*\)', content)
+        
+        if a_m and b_m and c_m and d_m:
+            opts = [
+                ('a', a_m.start(), a_m.end()),
+                ('b', b_m.start(), b_m.end()),
+                ('c', c_m.start(), c_m.end()),
+                ('d', d_m.start(), d_m.end())
+            ]
+            opts.sort(key=lambda x: x[1]) # जो पहले आए, उसे पहले रखना
+            
+            # सवाल वह है जो पहले ऑप्शन से पहले लिखा है
+            question_text = content[:opts[0][1]].strip()
+            
+            options_dict = {}
+            for j in range(4):
+                key = opts[j][0]
+                start_val = opts[j][2]
+                end_val = opts[j+1][1] if j < 3 else len(content)
+                options_dict[key] = content[start_val:end_val].strip()
+            
             final_quiz.append({
                 "id": q_id,
-                "question": parts[0].strip(),
-                "options": {
-                    "a": parts[1].replace('a)', '').strip(),
-                    "b": parts[2].replace('b)', '').strip(),
-                    "c": parts[3].replace('c)', '').strip(),
-                    "d": parts[4].replace('d)', '').strip()
-                }
+                "question": question_text,
+                "options": options_dict
             })
-    doc.close()
     return final_quiz
 
 @app.route('/upload', methods=['POST'])
@@ -46,10 +64,7 @@ def upload():
     path = "temp.pdf"
     file.save(path)
     try:
-        results = extract_quiz_fixed(path)
-        return jsonify(results)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify(extract_quiz_ultimate(path))
     finally:
         if os.path.exists(path): os.remove(path)
 
