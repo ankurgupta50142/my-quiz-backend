@@ -7,37 +7,35 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-# Krutidev को पढ़ने के लिए स्पेशल पैटर्न
-def extract_quiz_krutidev(pdf_path):
+def extract_quiz_fixed(pdf_path):
     final_quiz = []
     doc = fitz.open(pdf_path)
     full_text = ""
     for page in doc:
         full_text += page.get_text("text") + "\n"
     
-    # Krutidev में (a) अक्सर 'v' 'k' जैसे कोड में दिखता है
-    # इसलिए हम नंबरिंग (1., 2.) पर फोकस करेंगे
+    # KrutiDev में ब्रैकेट और नंबर अलग तरह से दिखते हैं
+    # हम नंबर (1. से 100.) के आधार पर ब्लॉक तोड़ेंगे
     blocks = re.split(r'(\d+)\.\s+', full_text)
     
     for i in range(1, len(blocks), 2):
         q_id = blocks[i]
         content = blocks[i+1]
         
-        # Krutidev में ब्रैकेट और ऑप्शंस को पकड़ने का लचीला तरीका
-        # हम मान के चलेंगे कि सवाल के बाद 4 विकल्प 'v', 'c', 'n' जैसे कोड में हो सकते हैं
-        if 'a' in content.lower() or 'v' in content: 
-            parts = re.split(r'\(', content) # ब्रैकेट से तोड़ना
-            if len(parts) >= 5:
-                final_quiz.append({
-                    "id": q_id,
-                    "question": parts[0].strip(),
-                    "options": {
-                        "a": parts[1].strip(),
-                        "b": parts[2].strip(),
-                        "c": parts[3].strip(),
-                        "d": parts[4].strip()
-                    }
-                })
+        # KrutiDev में (a) के लिए 'v' और (b) के लिए 'k' जैसे अक्षर इस्तेमाल होते हैं
+        # हम '(' ब्रैकेट के आधार पर ऑप्शंस बाँटेंगे
+        parts = re.split(r'\(', content)
+        if len(parts) >= 5:
+            final_quiz.append({
+                "id": q_id,
+                "question": parts[0].strip(),
+                "options": {
+                    "a": parts[1].replace('a)', '').strip(),
+                    "b": parts[2].replace('b)', '').strip(),
+                    "c": parts[3].replace('c)', '').strip(),
+                    "d": parts[4].replace('d)', '').strip()
+                }
+            })
     doc.close()
     return final_quiz
 
@@ -48,8 +46,7 @@ def upload():
     path = "temp.pdf"
     file.save(path)
     try:
-        # Krutidev फॉर्मेट के लिए एक्सट्रैक्शन
-        results = extract_quiz_krutidev(path)
+        results = extract_quiz_fixed(path)
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
