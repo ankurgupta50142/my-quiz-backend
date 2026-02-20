@@ -5,14 +5,16 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+
+# CORS एरर ठीक करने वाली ज़रूरी लाइन
+CORS(app, resources={r"/*": {"origins": "*"}}) 
 
 def extract_quiz(pdf_path):
     final_quiz = []
     doc = fitz.open(pdf_path)
     for page in doc:
         rect = page.rect
-        # 2-कॉलम लेआउट को संभालने के लिए (जैसे APS Target Paper)
+        # 2-कॉलम लेआउट हैंडलिंग (जैसे APS Target Paper)
         left = page.get_text("text", clip=fitz.Rect(0, 0, rect.width/2, rect.height))
         right = page.get_text("text", clip=fitz.Rect(rect.width/2, 0, rect.width, rect.height))
         text = re.sub(r'\s+', ' ', (left or "") + "\n" + (right or ""))
@@ -33,6 +35,7 @@ def extract_quiz(pdf_path):
 @app.route('/upload', methods=['POST'])
 def upload():
     file = request.files.get('file')
+    if not file: return jsonify({"error": "No file"}), 400
     path = "temp.pdf"
     file.save(path)
     try:
@@ -42,4 +45,3 @@ def upload():
 
 if __name__ == '__main__':
     app.run()
-  
