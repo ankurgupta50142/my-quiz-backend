@@ -7,42 +7,41 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-def extract_quiz_fixed(pdf_path):
+def clean_text(text):
+    # फालतू स्पेस और नई लाइनों को हटाना
+    return re.sub(r'\s+', ' ', text).strip()
+
+def extract_quiz_final(pdf_path):
     final_quiz = []
     doc = fitz.open(pdf_path)
     
     full_text = ""
     for page in doc:
-        # पेज का पूरा टेक्स्ट निकालें (टेबल फॉर्मेट को ध्यान में रखते हुए)
+        # पूरे पेज का टेक्स्ट निकालें
         full_text += page.get_text("text") + "\n"
     
-    # फालतू स्पेस को साफ़ करें लेकिन लाइन ब्रेक का ध्यान रखें
-    clean_text = re.sub(r' +', ' ', full_text)
-    
-    # सवाल नंबर के आधार पर बाँटें (जैसे 1. या 10.)
-    [span_5](start_span)#
-    blocks = re.split(r'(\n\d+\.\s+)', clean_text)
+    # सवाल नंबर के हिसाब से टेक्स्ट को तोड़ना (जैसे 1. या 100.)
+    # इसमें हमने \n? जोड़ा है ताकि अगर सवाल नई लाइन से शुरू हो तो भी पकड़ ले
+    blocks = re.split(r'(?:\n|^)(\d+)\.\s+', full_text)
     
     for i in range(1, len(blocks), 2):
-        q_header = blocks[i].strip()
+        q_id = blocks[i]
         content = blocks[i+1]
         
-        # आपके पेपर में (a), (b), (c), (d) विकल्प हैं[span_5](end_span)
-        if '(a)' in content and '(b)' in content:
-            parts = re.split(r'\(([a-d])\)', content)
+        # ऑप्शंस (a), (b), (c), (d) को ढूँढना - इसमें लचीलापन बढ़ाया है
+        if '(a)' in content.lower() and '(b)' in content.lower():
+            # ऑप्शंस को अलग करने के लिए Regex का उपयोग
+            parts = re.split(r'\(([a-dA-D])\)', content)
             
             if len(parts) >= 9:
-                # सवाल का पूरा हिस्सा (टेबल/मैचिंग के साथ)
-                question_text = q_header + " " + parts[0].strip()
-                
                 final_quiz.append({
-                    "id": q_header.replace('.', ''),
-                    "question": question_text,
+                    "id": q_id,
+                    "question": clean_text(parts[0]),
                     "options": {
-                        "a": parts[2].strip(),
-                        "b": parts[4].strip(),
-                        "c": parts[6].strip(),
-                        "d": parts[8].strip()
+                        "a": clean_text(parts[2]),
+                        "b": clean_text(parts[4]),
+                        "c": clean_text(parts[6]),
+                        "d": clean_text(parts[8])
                     }
                 })
     
@@ -56,7 +55,7 @@ def upload():
     path = "temp.pdf"
     file.save(path)
     try:
-        results = extract_quiz_fixed(path)
+        results = extract_quiz_final(path)
         return jsonify(results)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
