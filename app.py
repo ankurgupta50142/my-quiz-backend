@@ -7,54 +7,62 @@ from flask_cors import CORS
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})
 
-def extract_quiz_ultimate(pdf_path):
+def extract_quiz_super(pdf_path):
     final_quiz = []
     doc = fitz.open(pdf_path)
-    full_text = "\n"
+    
+    full_text = ""
     for page in doc:
-        full_text += page.get_text("text") + "\n"
+        rect = page.rect
+        # 2-कॉलम वाली PDF को सही से पढ़ने के लिए पेज को 2 हिस्सों में बाँटना
+        left = page.get_text("text", clip=fitz.Rect(0, 0, rect.width/2, rect.height))
+        right = page.get_text("text", clip=fitz.Rect(rect.width/2, 0, rect.width, rect.height))
+        full_text += (left or "") + "\n" + (right or "") + "\n"
     doc.close()
     
-    # सवाल नंबर के आधार पर बांटना (जैसे: लाइन के शुरू में '1. ')
-    blocks = re.split(r'\n(\d+)\.\s+', full_text)
+    # सारे फालतू स्पेस हटाकर उसे एक साफ़ लाइन में बदलना
+    clean_text = re.sub(r'\s+', ' ', full_text)
     
-    for i in range(1, len(blocks)-1, 2):
-        q_id = blocks[i]
-        content = blocks[i+1]
+    # 1. 2. 3. (सवाल नंबर) के आधार पर टेक्स्ट को काटना
+    parts = re.split(r'\s(\d{1,3})\.\s+', " " + clean_text)
+    
+    for i in range(1, len(parts)-1, 2):
+        q_id = parts[i]
+        content = parts[i+1]
         
-        # फालतू स्पेस हटाना
-        content = re.sub(r'\s+', ' ', content).strip()
+        # (a), (b), (c), (d) की जगह ढूँढना (चाहे वे कैपिटल में हों या स्माल में)
+        a_idx = content.lower().find('(a)')
+        b_idx = content.lower().find('(b)')
+        c_idx = content.lower().find('(c)')
+        d_idx = content.lower().find('(d)')
         
-        # ऑप्शंस (a), (b), (c), (d) को ढूँढना
-        a_m = re.search(r'\(\s*[aA]\s*\)', content)
-        b_m = re.search(r'\(\s*[bB]\s*\)', content)
-        c_m = re.search(r'\(\s*[cC]\s*\)', content)
-        d_m = re.search(r'\(\s*[dD]\s*\)', content)
-        
-        if a_m and b_m and c_m and d_m:
-            opts = [
-                ('a', a_m.start(), a_m.end()),
-                ('b', b_m.start(), b_m.end()),
-                ('c', c_m.start(), c_m.end()),
-                ('d', d_m.start(), d_m.end())
-            ]
-            opts.sort(key=lambda x: x[1]) # जो पहले आए, उसे पहले रखना
+        # अगर सवाल में कम से कम (a) और (b) मौजूद हैं, तभी उसे सेव करें
+        if a_idx != -1 and b_idx != -1:
+            question_text = content[:a_idx].strip()
             
-            # सवाल वह है जो पहले ऑप्शन से पहले लिखा है
-            question_text = content[:opts[0][1]].strip()
+            opts_positions = []
+            for char, idx in [('a', a_idx), ('b', b_idx), ('c', c_idx), ('d', d_idx)]:
+                if idx != -1:
+                    opts_positions.append((char, idx))
+            opts_positions.sort(key=lambda x: x[1])
             
-            options_dict = {}
-            for j in range(4):
-                key = opts[j][0]
-                start_val = opts[j][2]
-                end_val = opts[j+1][1] if j < 3 else len(content)
-                options_dict[key] = content[start_val:end_val].strip()
+            options_dict = {"a": "", "b": "", "c": "", "d": ""}
+            
+            for j in range(len(opts_positions)):
+                char, start_idx = opts_positions[j]
+                end_idx = opts_positions[j+1][1] if j+1 < len(opts_positions) else len(content)
+                
+                # ऑप्शन का टेक्स्ट निकालना और शुरू का (a) हटाना
+                opt_text = content[start_idx:end_idx].strip()
+                opt_text = re.sub(r'^\([a-dA-D]\)\s*', '', opt_text)
+                options_dict[char] = opt_text
             
             final_quiz.append({
                 "id": q_id,
                 "question": question_text,
                 "options": options_dict
             })
+            
     return final_quiz
 
 @app.route('/upload', methods=['POST'])
@@ -64,7 +72,7 @@ def upload():
     path = "temp.pdf"
     file.save(path)
     try:
-        return jsonify(extract_quiz_ultimate(path))
+        return jsonify(extract_quiz_super(path))
     finally:
         if os.path.exists(path): os.remove(path)
 
